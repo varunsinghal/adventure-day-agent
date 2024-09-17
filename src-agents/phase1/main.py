@@ -59,8 +59,14 @@ async def ask_question(ask: Ask):
     print('Sending a request to openai')
     start_phrase =  ask.question
     response: openai.types.chat.chat_completion.ChatCompletion = None
+    system_question = "For the question, answer using only the words from the correct option."
 
     # Send a completion call to generate an answer
+    response = client.chat.completions.create(
+        model = deployment_name,
+        messages = [{"role" : "assistant", "content" : start_phrase}, 
+                     { "role" : "system", "content" : system_question }]
+    )
 
     answer = Answer(answer=response.choices[0].message.content)
     answer.correlationToken = ask.correlationToken

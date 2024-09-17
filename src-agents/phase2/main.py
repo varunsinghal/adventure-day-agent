@@ -71,7 +71,7 @@ search_client = SearchClient(
 
 @app.get("/")
 async def root():
-    return {"message": "Hello Smorgs"}
+    return {"message": "Hello Smorgs, ask me everything about movies"}
 
 @app.post("/ask", summary="Ask a question", operation_id="ask") 
 async def ask_question(ask: Ask):
@@ -85,6 +85,48 @@ async def ask_question(ask: Ask):
     #####\n",
     # implement rag flow here\n",
     ######\n",
+
+    vector = VectorizedQuery(vector=get_embedding(ask.question), k_nearest_neighbors=5, fields="vector")
+
+    # create search client to retrieve movies from the vector store
+    found_docs = list(search_client.search(
+        search_text=None,
+        query_type="semantic",
+        semantic_configuration_name="movies-semantic-config",
+        vector_queries=[vector],
+        select=["title", "genre", "plot", "year"],
+        top=5
+    ))
+
+    found_docs_as_text = " "
+    # print the found documents and the field that were selected
+    for doc in found_docs:
+        print("Movie: {}".format(doc["title"]))
+        print("Genre: {}".format(doc["genre"]))
+        print("Year: {}".format(doc["year"]))
+        print("----------")
+        found_docs_as_text += " "+ "Movie Title: {}".format(doc["title"]) +" "+ "Release Year: {}".format(doc["year"]) + " "+ "Movie Plot: {}".format(doc["plot"])
+    
+    # augment the question with the found documents and ask the LLM to generate a response
+    system_prompt = "Here is what you need to do:"
+    if ask.type == QuestionType.multiple_choice:
+        system_prompt = "Based on the context provided, select the correct option and answer using only the text from that option."
+    elif ask.type == QuestionType.estimation:
+        system_prompt = "Using the provided context, give only the estimated value without any additional explanation, no bs."
+    elif ask.type == QuestionType.true_or_false:
+        system_prompt = "Based on the provided context, respond with either 'True' or 'False' only."
+    else:
+        system_prompt = "I do not know this prompt context. You try your best."
+    
+    parameters = [system_prompt, ' Context:', found_docs_as_text , ' Question:', ask.question]
+    joined_parameters = ''.join(parameters)
+
+    response = client.chat.completions.create(
+        model = deployment_name,
+        messages = [{"role" : "assistant", "content" : joined_parameters}],
+    )
+    
+    print (response.choices[0].message.content)
 
     answer = Answer(answer=response.choices[0].message.content)
     answer.correlationToken = ask.correlationToken
